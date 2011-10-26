@@ -1,7 +1,7 @@
 ;    Copyright 2011 Free Software Foundation, Inc.
 ;
 ;    Filename: org-bom.el
-;    Version: 0.4
+;    Version: 0.4  
 ;    Author: Christian Fortin <frozenlock AT gmail DOT com>
 ;    Keywords: org, bill-of-materials, collection, tables
 ;    Description: Create a bill-of-materials (bom) of the entire org buffer
