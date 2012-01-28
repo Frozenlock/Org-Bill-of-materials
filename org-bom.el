@@ -1,3 +1,5 @@
+;;; org-bom.el --- Collect components across the entire org buffer
+
 ;    Copyright 2011 Free Software Foundation, Inc.
 ;
 ;    Filename: org-bom.el
@@ -18,7 +20,9 @@
 ;
 ;    You should have received a copy of the GNU General Public License
 ;    along with this program.  If not, see <http://www.gnu.org/licenses/>.
-;
+
+;;; Commentary:
+
 ;----------------------- TUTORIAL --------------------
 ;-------- This tutorial should read as an org-file----
 ;-----------------------------------------------------
@@ -516,6 +520,8 @@
 ;=====================================================
 ; The program begins here
 ;=====================================================
+
+;;; Code:
 
 (require 'org)
 (require 'org-table)
