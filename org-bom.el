@@ -4,7 +4,7 @@
 ;
 ;    Filename: org-bom.el
 ;    Version: 0.4
-;    Author: Christian Fortin <frozenlock AT gmail DOT com>
+;    Author: Christian Fortin <frozenlock@gmail.com>
 ;    Keywords: org, bill-of-materials, collection, tables
 ;    Description: Create a bill-of-materials (bom) of the entire org buffer
 ;
@@ -21,508 +21,13 @@
 ;    You should have received a copy of the GNU General Public License
 ;    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-;;; Commentary:
-
-;----------------------- TUTORIAL --------------------
-;-------- This tutorial should read as an org-file----
-;-----------------------------------------------------
-
-;; * BOM introduction
-
-;;   This add-on collects components across the entire org buffer (even
-;;   in drawers), making it easy to retrieve and sort data. It uses the
-;;   column special name as a landmark. We will refer to them as
-;;   'Keywords'. The keywords are searched using a string-match function,
-;;   which gives the ability to have multiple column with the same
-;;   functionality, but also to use the column name as we would usually
-;;   with org-mode. For example, we can have 'tag' and 'tag2', both are
-;;   recognized by the BOM add-on and can be used in a spreadsheet-like
-;;   formula without any confusion. The keywords are also
-;;   case-insensitive. 'Component' and 'component' will work in the same
-;;   way.
-
-;;   The BOM is usually used with a dynamic block. (You can use the
-;;   different functions in emacs-lisp code, but this is beyond the
-;;   purpose of this tutorial.) Here is the basic dynamic block:
-
-;; :  #+BEGIN: bom
-;; :  #+END:
-
-;;   And here is what we obtain at this point:
-;; :  #+BEGIN: bom
-;; : | Section | Tag | Component | Quantity |
-;; : |---------+-----+-----------+----------|
-;; :  #+END:
-
-;;   The table is empty, because we have to either:
-;;   1. Add keywords in a table;
-;;   2. Add a line-component.
-
-;; * BOM keywords
-;; ** Component
-
-;;      This is the most important keyword and act as the trigger. For
-;;   this example, let's say we write down things we want to buy. In
-;;   this case, a new keyboard for our computer.  This is how the
-;;   table should be:
-
-;; :  |   | Material  |
-;; :  | ! | Component |
-;; :  |---+-----------|
-;; :  |   | Keyboard  |
-
-;;   The '!' character is used in org table to specify column name, such
-;;   as our keyword, 'component'.
-;;   And here is what the bill-of-materials for this table is:
-
-;; :  #+BEGIN:  bom
-;; : | Section   | Tag | Component | Quantity |
-;; : |-----------+-----+-----------+----------|
-;; : | Component |     | Keyboard  |        1 |
-;; :  #+END:
-
-;;   As you can see, the heading (Component) was automatically
-;;   used as the 'section', which doesn't require attention for
-;;   now. The quantity is, unsurprisingly, 1. There is nothing in the tag
-;;   column for now, so let's dismiss it by adding the parameter *:no-tag
-;;   t*.
-;;   This will results in the following:
-;; :  #+BEGIN: bom  :no-tag t
-;; : | Section   | Component | Quantity |
-;; : |-----------+-----------+----------|
-;; : | Component | Keyboard  |        1 |
-;; :  #+END:
-
-;;   Now suppose that our friend too wants a new keyboard.
-
-;; :  |   | For    | Material  |
-;; :  | ! |        | Component |
-;; :  |---+--------+-----------|
-;; :  |   | Me     | Keyboard  |
-;; :  |   | Friend | Keyboard  |
-
-;; :   #+BEGIN: bom :no-tag t
-;; :  | Section   | Component | Quantity |
-;; :  |-----------+-----------+----------|
-;; :  | Component | Keyboard  |        2 |
-;; :   #+END:
-
-;;   As expected, we get 2 keyboards.
-
-;; ** Section
-
-;;      The section is used to separate what would otherwise be an
-;;   identical component. Suppose we don't want our friend's wishes to be
-;;   in the same BOM as our, but still have them in the same table.
-
-;; :  |   | For     | Material  |
-;; :  | ! | Section | Component |
-;; :  |---+---------+-----------|
-;; :  |   | Me      | Keyboard  |
-;; :  |   | Friend  | Keyboard  |
-
-;;   This will results in the following BOM:
-
-;; :  #+BEGIN: bom :no-tag t
-;; : | Section | Component | Quantity |
-;; : |---------+-----------+----------|
-;; : | Friend  | Keyboard  |        1 |
-;; : | Me      | Keyboard  |        1 |
-;; :  #+END:
-
-;;   Please note that when a component is given a section, it isn't
-;;   associated with the heading anymore. As an alternative, you can set
-;;   a ':SECTION:' property in the heading, which will be inherited by
-;;   all the components _without_ a specified section.
-;;   Section's priorities are as follow:
-
-;;   1. Given section with the 'section' keyword;
-;;   2. The SECTION property;
-;;   3. The heading.
-
-;; ** Qty
-
-;;      With this keyword, it is possible to specify a quantity for the
-;;   associated component. In our always improving scenario, we now want to
-;;   give a keyboard to another of our friend (as a gift). This is going to
-;;   be bought at the same time as our keyboard, so they belong together.
-
-;; :  |   | For     | Material  |     |
-;; :  | ! | Section | Component | Qty |
-;; :  |---+---------+-----------+-----|
-;; :  |   | Me      | Keyboard  |   2 |
-;; :  |   | Friend  | Keyboard  |   1 |
-
-;; :   #+BEGIN: bom :no-tag t
-;; :  | Section | Component | Quantity |
-;; :  |---------+-----------+----------|
-;; :  | Friend  | Keyboard  |        1 |
-;; :  | Me      | Keyboard  |        2 |
-;; :   #+END:
-
-;;   *Important*: If Qty keyword is present, then any empty field will
-;;   be considered as _zero_. This way, multiple column quantity are
-;;   made quite easily:
-
-;; :  |   | For     | Material  | Personal | Gift |
-;; :  | ! | Section | Component |      Qty | Qty2 |
-;; :  |---+---------+-----------+----------+------|
-;; :  |   | Me      | Keyboard  |        1 | 1    |
-;; :  |   | Friend  | Keyboard  |        1 |      |
-
-;; :   #+BEGIN: bom :no-tag t
-;; :  | Section | Component | Quantity |
-;; :  |---------+-----------+----------|
-;; :  | Friend  | Keyboard  |        1 |
-;; :  | Me      | Keyboard  |        2 |
-;; :   #+END:
-
-;; ** Tag
-
-;;      When a BOM starts to get big, we often need a quick reminder of
-;;   why we need certain component. Another use is also to identify the
-;;   component. As the Qty keyword, multiple Tag columns can be associated
-;;   with a single component. Here we will simply use the tag as a reminder
-;;   of what we want to look for in the store.
-
-;; :  |   | For     | Material  | Personal | Gift | Need               |
-;; :  | ! | Section | Component |      Qty | Qty2 | Tag                |
-;; :  |---+---------+-----------+----------+------+--------------------|
-;; :  |   | Me      | Keyboard  |        1 | 1    | Matching colors    |
-;; :  |   | Friend  | Keyboard  |        1 |      | Dinosaurs pictures |
-
-;;   To show the tag column in the BOM, we simply remove the no-tag
-;;   parameter.
-;; :  #+BEGIN: bom
-;; : | Section | Tag                | Component | Quantity |
-;; : |---------+--------------------+-----------+----------|
-;; : | Friend  | Dinosaurs pictures | Keyboard  |        1 |
-;; : | Me      | Matching colors    | Keyboard  |        2 |
-;; :  #+END:
-
-
-;;   If two Tag columns are present for a single Component column, the
-;;   tags will be associated with this component, separated by a comma.
-
-;; * Renaming BOM columns
-
-;;      It is possible to rename the BOM columns with the following
-;;   parameters:
-;;   - col-name-component
-;;   - col-name-section
-;;   - col-name-quantity
-;;   - col-name-tag
-;;   - col-name-description
-;;   - col-name-price
-
-;;   This is how our renamed BOM would look like:
-
-;; :  #+BEGIN: bom :col-name-section For :col-name-tag Need :col-name-component Stuff :col-name-quantity Qty
-;; : | For    | Need               | Stuff    | Qty |
-;; : |--------+--------------------+----------+-----|
-;; : | Friend | Dinosaurs pictures | Keyboard |   1 |
-;; : | Me     | Matching colors    | Keyboard |   2 |
-;; :  #+END:
-
-;; * Multiple component's column
-
-;;      There is two way to add components in a section. Either by adding
-;;   other rows with the same section's name, or by adding other
-;;   columns. Both have their uses and they should come to you quite
-;;   naturally. In our example, we want more stuff.
-
-;; :  |   | For     | Material  | Personal | Gift | Need               | Stuff     | More stuff | Much more stuff | How many |
-;; :  | ! | Section | Component |      Qty | Qty2 | Tag                | Component | Component  | Component       | Qty      |
-;; :  |---+---------+-----------+----------+------+--------------------+-----------+------------+-----------------+----------|
-;; :  |   | Me      | Keyboard  |        1 | 1    | Matching colors    | Mouse     | Headset    | USB flash drive | 23       |
-;; :  |   | Friend  | Keyboard  |        1 |      | Dinosaurs pictures |           |            |                 |          |
-;; :  |   | Friend  |           |          |      |                    |           |            | CDs             | 50       |
-;; :  |   | Friend  | Mouse     |        1 |      |                    |           |            |                 |          |
-
-;;   This is beginning to get interesting. Note that even if we can
-;;   name the additional columns 'Component2' or 'ComponentAAA',
-;;   there's no use to do it if no table-formula uses the column
-;;   names.
-
-;; * Precise section selection
-;;   Now suppose we want to get OUR to-buy list. Simply specify
-;;   the section's parameter *:section Me*:
-
-;; :   #+BEGIN: bom :section Me
-;; :  | Tag             | Component       | Quantity |
-;; :  |-----------------+-----------------+----------|
-;; :  |                 | Headset         |        1 |
-;; :  | Matching colors | Keyboard        |        2 |
-;; :  |                 | Mouse           |        1 |
-;; :  |                 | USB flash drive |       23 |
-;; :   #+END:
-
-;;   Wait, where's the section column?  Well we don't need it anymore,
-;;   as we specified one.
-
-;;   A '+' sign will specify we want more than a single section. *:section
-;;   Me+Friend* will select both section, and add the quantity and tags
-;;   for each component.
-
-;; :  #+BEGIN: bom :section Me+Friend
-;; : | Tag                                 | Component       | Quantity |
-;; : |-------------------------------------+-----------------+----------|
-;; : |                                     | CDs             |       50 |
-;; : |                                     | Headset         |        1 |
-;; : | Dinosaurs pictures, Matching colors | Keyboard        |        3 |
-;; : |                                     | Mouse           |        2 |
-;; : |                                     | USB flash drive |       23 |
-;; :  #+END:
-
-;;   *Do not* put a whitespace between the section name and the '+' sign.
-;;   Speaking of whitespace, if you need one in a section name, simply
-;;   put it in a string:
-;; : #+BEGIN: bom :section "Section with whitespace"
-
-;;   We can also return every section that matches at least what we
-;;   provide. To activate this, use *:part-match t*. With this, if we
-;;   write "fr", the Friend section is returned. If we had another
-;;   section named "Frosting", than Friend and Frosting would have been
-;;   merged and we would have a total for both section.
-
-;; :  #+BEGIN: bom :section fr :part-match t
-;; : | Tag                | Component | Quantity |
-;; : |--------------------+-----------+----------|
-;; : |                    | CDs       |       50 |
-;; : | Dinosaurs pictures | Keyboard  |        1 |
-;; : |                    | Mouse     |        1 |
-;; :  #+END:
-
-;;   It is also possible to specify that we don't want any section
-;;   containing "fr". For this, use the parameter *:remove t*.
-
-;; :  #+BEGIN: bom :section fr :part-match t :remove t
-;; : | Tag             | Component       | Quantity |
-;; : |-----------------+-----------------+----------|
-;; : |                 | Headset         |        1 |
-;; : | Matching colors | Keyboard        |        2 |
-;; : |                 | Mouse           |        1 |
-;; : |                 | USB flash drive |       23 |
-;; :  #+END:
-
-;;   In this case, getting all sections not containing "fr" is the
-;;   equivalent of choosing the section "Me".
-
-;;   If you simply want the components from the current heading, use the
-;;   parameter *:local-only t*. This will return components with the
-;;   current heading as their section, which is the default of every
-;;   component if no section is provided. If a section has been provided to
-;;   a component (and is not exactly equal to the heading), the component
-;;   will not be returned.
-
-;;   Here, we don't have any component under this heading:
-;; :  #+BEGIN: bom :local-only t
-;; : | Tag | Component | Quantity |
-;; : |-----+-----------+----------|
-;; :  #+END:
-
-;; * BOM total
-;;   This is all really interesting, but when we're in a shop, we want
-;;   to know how many of each item we have to buy, we need a *total*.
-;;   For this, simply add the *:total t* parameter. We will also remove
-;;   the tags once again by using *:no-tag t*.
-
-;; :  #+BEGIN: bom :total t :no-tag t
-;; : | Component       | Quantity |
-;; : |-----------------+----------|
-;; : | CDs             |       50 |
-;; : | Headset         |        1 |
-;; : | Keyboard        |        3 |
-;; : | Mouse           |        2 |
-;; : | USB flash drive |       23 |
-;; :  #+END:
-
-;;   This is the equivalent of merging every sections together.
-;; * Adding a component without a table
-
-;;   There is another option you might need. If you ever want to
-;;   add a component without a table, use the #+BOM commentary. As any
-;;   other org-mode commentary, this one won't appear when exported to
-;;   another document (pdf, html, docbook..). It will, however, enable
-;;   you to add a single component in the bill-of-materials. Here is an
-;;   example:
-;; :  #+BOM: Keyboard :section Need :tag "Matching colors"
-
-;;   As with the table components, you can simply give a component name if
-;;   you desire. If no section is given, it will be inherited as an
-;;   ordinary component in a table: a section property or the current
-;;   heading.
-
-;; * Adding details
-;;   There is two way to add details to a BOM. The first one is to setq
-;;   `org-bom-details' with a plist containing, depending on your
-;;   needs, :description, :datasheet-pdf and :price. You must, however, at
-;;   least have the component name in the :name property. Here is an
-;;   example on how to set this variable:
-
-;; #+BEGIN_SRC emacs-lisp
-;; (setq org-bom-details '((:name "Keyboard" :description
-;;                           "Something" :price "40")
-;;                           (:name "CDs" :description "Not
-;;                           DVDs" :datasheet-pdf "CD.pdf")))
-;; #+END_SRC
-;;   Please note that the price is a *string*.
-
-;;   The other method, valid for the current buffer only, is to give one
-;;   or more bom-details table. It is recognized when a table is named as
-;;   such:
-;; :  #+TBLNAME: bom-details
-
-;;   Once again, the column names are used. Contrary to the normal BOM
-;;   keywords however, these are case-sensitive and must be written
-;;   exactly as their property name. For example, the column of the
-;;   property ':name' must be 'name'.
-;; :  #+TBLNAME: bom-details
-;; : | ! | name     | description  | price |
-;; : |---+----------+--------------+-------|
-;; : |   | Keyboard | Used to type |    40 |
-;; : |   | CDs      |              |       |
-
-;;   Any bom-details table will temporarily overshadow the
-;;   `org-bom-details' variable, but won't erase or modify it. This means
-;;   you can safely use a bom-details table if you need to change some
-;;   local buffer description, while using `org-bom-details' in multiple
-;;   buffer.
-
-;;   Look at the CDs description. When a field is empty, it is *not* used
-;;   and BOM falls back to the property in the `org-bom-details'
-;;   variable.
-
-;; ** Description
-
-;;    You can add a description column in a BOM by adding the
-;;    *:description t* parameter.
-
-;; :   #+BEGIN: bom :total t :no-tag t :description t
-;; :  | Component       | Quantity | Description  |
-;; :  |-----------------+----------+--------------|
-;; :  | CDs             |       50 | Not DVDs     |
-;; :  | Headset         |        1 | N/A          |
-;; :  | Keyboard        |        3 | Used to type |
-;; :  | Mouse           |        2 | N/A          |
-;; :  | USB flash drive |       23 | N/A          |
-;; :   #+END:
-
-;;    See how the CDs' description wasn't the empty field from the
-;;    bom-details table.
-
-;; ** Price
-
-;;    You can add a price column in a BOM by adding the *:price t*
-;;    parameter.
-
-;; :   #+BEGIN: bom :total t :no-tag t :description t :price t
-;; :  | Component       | Quantity | Price | Description  |
-;; :  |-----------------+----------+-------+--------------|
-;; :  | CDs             |       50 |       | Not DVDs     |
-;; :  | Headset         |        1 |       | N/A          |
-;; :  | Keyboard        |        3 |   120 | Used to type |
-;; :  | Mouse           |        2 |       | N/A          |
-;; :  | USB flash drive |       23 |       | N/A          |
-;; :  |-----------------+----------+-------+--------------|
-;; :  | TOTAL:          |          |   120 |              |
-;; :      #+TBLFM: @>$3=vsum(@I..@>>)
-;; :   #+END:
-;;    The price is automatically multiplied by the quantity of each
-;;    component. In addition, a total row is added at the table's bottom
-;;    with a vertical sum formula.
-
-;; ** Datasheet
-
-;;    This is a special property and must be used only if you intend to
-;;    export in a pdf document. See [[LaTeX mode and bom-datasheet]] for more details.
-
-;; * List of BOM parameters
-;;   Here is a list of all the parameters usable in a BOM dynamic block,
-;;   as seen throughout this tutorial:
-
-;;   - no-tag :: Remove the tags column
-;;   - section :: Select this section (or more if there's a + sign)
-;;   - part-match :: Select every section with at least the string
-;;                   provided for the section parameter
-;;   - remove :: Select every sections except the one(s) provided
-;;   - descripton :: Add the description column
-;;   - price :: Add the price column and a total row at the bottom of the
-;;              table
-;;   - col-name-*** :: Rename the associated column
-;; * Advanced and elisp functions
-;; ** Speed up updates
-;;    Each BOM dynamic block scans the entire buffer individually. While
-;;    it is necessary that each block be able to update itself, it
-;;    becomes a waste when the command `org-update-all-dblocks' is
-;;    used. (The components usually aren't changing from a dblock evaluation to
-;;    another.)
-
-;;    In order to speed up updates, there's a variable that can be used
-;;    to stop each BOM dblock from doing a buffer-wide scan. To disable the
-;;    scans, set `org-bom-update-enable' to nil.
-
-;;    The author uses a function similar to this one to speed up updates:
-;; #+BEGIN_SRC emacs-lisp :exports code
-;; (defun reg-update-project (&optional latex-mode)
-;;   "Update every table and dynamic block in the buffer. If latex-mode
-;; is non-nil, various latex commands will be inserted."
-;;   (interactive)
-;;   (org-table-iterate-buffer-tables)
-;;   (org-bom-total); manually update the BOM database
-;;   (let ((org-bom-update-enable nil)
-;; 	(org-bom-latex-mode latex-mode)
-;; 	(org-bom-details (copy-tree org-bom-details)));so we don't overwrite
-;;     (org-bom-check-for-details-table); manually update `org-bom-details'
-;;     (org-update-all-dblocks))
-;;   (message "Project updated"))
-;; #+END_SRC
-
-;; ** LaTeX mode and bom-datasheet
-;;   This mode isn't fully integrated to org-mode and should be seen as a
-;;   hack. It is however useful to the author, which is why it is
-;;   explained here.
-
-;;   Set the `org-bom-latex-mode' variable to non-nil in order to
-;;   activate the latex-mode. If set, all BOM dynamic block will insert
-;;   some latex commands.
-
-;;   These commands targets:
-;;   - Tags :: When there is more tags than `org-bom-latex-max-tags' per
-;;             component, the remaining tags are put in a pdf comment.
-;;   - Component name :: If a datasheet exists for the component, its
-;;                       name will become a link to its datasheet.
-
-
-;;   If you ever activate the LaTeX mode, use the bom-datasheet dynamic
-;;   block at the end of your document. The optional parameter
-;;   *:description t* will add a summary of all the components used in
-;;   this buffer with their description, just before the datasheets.
-
-;; :  #+BEGIN: bom-datasheet
-;; :
-;; :  #+LaTeX: \includepdf[pages=-,landscape=true,addtotoc={1, subsection, 1, CDs,CD.pdf}]{\DATASHEETPATH/CD.pdf}
-;; :
-;; :  #+END:
-
-;;   As you may have noticed, there's a LaTeX variable in this command:
-;;         \DATASHEETPATH. In order to work, you must set this variable
-;;         using:
-
-;; :	#+LATEX_HEADER: \newcommand{\DATASHEETPATH}{Name-of-the-folder/}'
-
-;; 	Name-of-the-folder is the folder where the datasheets' files
-;;         are located.
-;-----------------------------------------------------
-;------------------- End of tutorial -----------------
-;-----------------------------------------------------
-;
 ;=====================================================
 ; The program begins here
 ;=====================================================
 
 ;;; Code:
 
+(require 'cl)
 (require 'org)
 (require 'org-table)
 (require 'gnus-util)
@@ -536,7 +41,7 @@ well as their section, tags and quantity.")
 (defvar org-bom-details nil
   "Need to be given by the user. A suggested use is to bind it to
 a local user's database. Should be a plist with at least \":name\" and
-\":description\". It should also contain \":datasheet-pdf\" in order
+\":description\". It should also contain \":datasheetPdf\" in order
 to use the bom-datasheet dynamic block.")
 
 (defvar org-bom-update-enable t
@@ -545,15 +50,24 @@ refreshed. Should be set to nil for a buffer-wide dynamic block,
 such as with `org-update-all-dblocks'. However, be sure to update
 manually with `org-bom-total' in this case.")
 
-(defvar org-bom-latex-mode nil
-  "If activated, every component's name will be replaced by a reference
-to the datasheet and comments might be activated if necessary (large
-number of tags). See `org-bom-latex-max-tags'.")
+(defcustom org-bom-latex-mode nil
+  "If activated, every component's name will be replaced by a
+reference to the datasheet and comments might be activated if
+necessary (large number of tags). See `org-bom-latex-max-tags'.
+Requires LaTeX package PDFCOMMENT, PDFPAGES and HYPERREF."
+  :type 'boolean
+  :group 'org-bom)
 
-(defvar org-bom-latex-max-tags 10
+(defcustom org-bom-latex-max-tags 10
   "Define the maximum number before the tags start being hidden in a
-PDF comment. Set to nil to disable.")
+PDF comment. Set to nil to disable."
+  :type 'integer
+  :group 'org-bom)
 
+(defcustom org-bom-latex-datasheetPath ""
+  "Default path to your datasheet."
+  :type 'string
+  :group 'org-bom)
 
 ;========== Database section ==========
 
@@ -624,7 +138,7 @@ is, add the quantity and the tag, otherwise create a new entry."
   (message "org-bom-total"))
 
 (defun org-bom-sort (database)
-  "Returns the DATABASE sorted alphabetically by component name"
+  "Return the DATABASE sorted alphabetically by component name"
   (sort database ;sort in alphabetical order
 	(lambda (arg1 arg2)
 	  (gnus-string< (component-name arg1)
@@ -675,12 +189,47 @@ is, add the quantity and the tag, otherwise create a new entry."
 	    (re-search-forward org-table-dataline-regexp end t))
        (match-beginning 0))))
 
+(defun org-bom-transfer ()
+  "Scan the buffer for an org-mode comment \"#+BOM-XFER:\".
+Everything before the
+keys (:FROM-SECTION, :TO-SECTION, :PART-MATCH, :EVERYTHING) is
+considered to be the component's name, except the last
+whitespaces. The only required key is the :TO-SECTION. It
+specifies in which section the component must be sent.
+Unless :FROM-SECTION is provided, the section from which to
+transfer the components will be following the same rule as
+`org-bom-prepare-tabledata-for-database'. A :PART-MATCH argument
+can be provided and follows the same rule as
+`org-bom-select-in-db' for the section selection. To disregard
+the :FROM-SECTION altogether and simply take every instance of a
+component in the entire database, provide :EVERYTHING non-nil."
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "^[ \t]*#\\+BOM-XFER:[ \t]+\\([^:\n]+\\)\\(.*\\)?" nil t)
+      (let* ((name (org-no-properties (match-string 1)))
+	     (params (read (concat "(" (match-string 2) ")")))
+	     (from-section (or (plist-get params :from-section) (org-bom-check-possible-section)))
+	     (to-section (plist-get params :to-section))
+	     (everything (plist-get params :everything))
+	     (part-match (plist-get params :part-match)))
+	(setq name (org-trim name))
+	(let ((temp-database (org-bom-select-in-db org-bom-database 'component-name name)))
+	  (unless everything
+	    (setq temp-database (org-bom-select-in-db temp-database
+						      'component-section
+						      from-section
+						      nil
+						      part-match)))
+	  (dolist (current-component temp-database)
+	    (setf (component-section current-component) to-section)))))))
+
 (defun org-bom-prepare-linedata-for-database (&optional section-override)
-  "Scan the buffer and add line-components to database. Search for an
-org-mode comment \"#+BOM:\". Everything before the keys (:section, :qty, :tag)
-is considered to be the component's name, except the last whitespaces.
-The same \"section\" priority is in this order: Given with the :section key,
-in a :SECTION: property, or the org heading."
+  "Scan the buffer and add line-components to database. Search
+for an org-mode comment \"#+BOM:\". Everything before the
+keys (:section, :qty, :tag) is considered to be the component's
+name, except the last whitespaces. The \"section\" priority is in
+this order: Given with the :section key, in a :SECTION: property,
+or the org heading."
   (goto-char (point-min))
   (while (re-search-forward "^[ \t]*#\\+BOM:[ \t]+\\([^:\n]+\\)\\(.*\\)?" nil t)
     (let* ((name (org-no-properties (match-string 1)))
@@ -769,7 +318,7 @@ command, otherwise `org-bom-details' will be overwritten."
 
 (defun org-bom-add-details-from-table ()
   "Scans the table for a special row (\"!\"), looking for \"name\"
-\"description\", \"price\", and \"datasheet-pdf\". Adds the data to
+\"description\", \"price\", and \"datasheetPdf\". Adds the data to
 `org-bom-details' Warning, case-sensitive!."
   (org-table-get-specials) ;needed to refresh org-table-column-names
   (let ((column-names (nreverse org-table-column-names))
@@ -852,7 +401,7 @@ or the POSSIBLE-SECTION."
       possible-section))
 
 
-(defun org-bom-get-table-field (&optional N)
+(defun org-bom-get-table-field (&optional N REPLACE)
   "Same as `org-table-get-field', but with some string cleaning."
   (org-trim (substring-no-properties (org-table-get-field N))))
 
@@ -876,9 +425,7 @@ would give '(\"foo\" \"do\") '(\"bar\" \"ré\") '(\"foo\" \"mi\") with the '\", \
 
 (defun org-bom-list-to-tsv-file (list &optional filename column)
   "Export a list in a tsv file"
-  (save-excursion
-    (set-buffer (find-file-noselect (or filename "list-export.txt")))
-    (erase-buffer)
+  (with-temp-file (or filename "list-export.txt")
     (let ((n-col (or column 1)))
       (dolist (single-item list)
 	(if (> n-col 0)
@@ -890,9 +437,7 @@ would give '(\"foo\" \"do\") '(\"bar\" \"ré\") '(\"foo\" \"mi\") with the '\", \
 	  (newline)
 	  (insert single-item)
 	  (if (> n-col 0)
-	    (insert-tab)))))
-    (save-buffer)
-    (kill-buffer)))
+	      (insert-tab)))))))
 
 (defun org-bom-get-all (database selector-fn)
   "Return every different instance of a certain type in a single list. For
@@ -964,13 +509,14 @@ See `org-bom-insert-table' for more details."
   (let ((org-bom-details (copy-tree org-bom-details)))
     (when org-bom-update-enable
       (org-bom-check-for-details-table)
-      (org-bom-total)); Scan the buffer and refresh the bill of materials
+      (org-bom-total); Scan the buffer and refresh the bill of materials
+      (org-bom-transfer))
     (org-bom-insert-table params)
   (message "Bill of materials created")))
 
 (defun org-bom-stringify (&optional argument)
-  "If ARGUMENT is string, returns unchanged. If it's a symbol,
-returns the symbol-name. If nil, return nil"
+  "If ARGUMENT is string, return unchanged. If it's a symbol,
+return the symbol-name. If nil, return nil"
   (if (null argument)
       nil
     (cond ((not (stringp argument)) (symbol-name argument))
@@ -1055,7 +601,8 @@ See `org-bom-prepare-tabledata-for-database' for more information."
 	  (insert-col-tag
 	   (if (plist-get params :no-tag) nil t)) ; Default ON, must be turned off by the user
 	  (insert-col-component t) ; Always true, for now
-	  (insert-col-quantity t) ; Always true, for now
+	  (insert-col-quantity
+	   (if (plist-get params :no-quantity) nil t))
 	  (remove-mark
 	   (if (plist-get params :remove) t nil)) ; indicate if we should remove rather than keep
 	  (part-match
@@ -1114,7 +661,8 @@ See `org-bom-prepare-tabledata-for-database' for more information."
 				 insert-col-section
 				 insert-col-tag
 				 insert-col-price
-				 insert-col-description))))
+				 insert-col-description
+				 insert-col-quantity))))
 
 	;;if there's a price, add a total line
 	(when insert-col-price
@@ -1144,40 +692,41 @@ See `org-bom-prepare-tabledata-for-database' for more information."
 
 
 
-(defun org-bom-to-lisp-table (database &optional section tag price description)
-  "Returns an orgtbl compliant table from an org-bom DATABASE.
+(defun org-bom-to-lisp-table (database &optional section tag price description quantity)
+  "Return an orgtbl compliant table from an org-bom DATABASE.
 See `org-bom-to-lisp-table-row' for more details."
   (let ((table '())) ;an empty list
-  (dolist (current-component database)
+  (dolist (current-component database table)
     (push (org-bom-to-lisp-table-row current-component
 				     section
 				     tag
 				     price
-				     description)
-	  table))
-  table))
+				     description
+				     quantity)
+	  table))))
 
 
 
-(defun org-bom-to-lisp-table-row (component &optional section tag price description)
-  "Returns an orgtbl compliant row for a given COMPONENT
+(defun org-bom-to-lisp-table-row (component &optional section tag price description quantity)
+  "Return an orgtbl compliant row for a given COMPONENT
 from the org-bom-database."
   (let ((list '())
 	(tags (component-tag component))
 	(name (component-name component))
-	(quantity (component-quantity component)))
+	(quantity-num (component-quantity component)))
     (when section
       (push (component-section component) list))
     (when tag
       (push (org-bom-to-lisp-table-tags (component-tag component)) list))
     (when component
-      (push (org-bom-to-lisp-table-name (component-name component)) list)
+      (push (org-bom-to-lisp-table-name (component-name component)) list))
+    (when quantity
       (push (number-to-string (component-quantity component)) list))
     (when price
       (let ((current-price
 	      (plist-get (org-bom-get-current-component name) :price)))
 	(push (if current-price
-		  (number-to-string (* quantity
+		  (number-to-string (* quantity-num
 				       (string-to-number current-price)))
 		"" )
 	      list)))
@@ -1195,7 +744,7 @@ from the org-bom-database."
   "Check if `org-bom-latex-mode' is non-nil, if the datasheet exists
 and add the necessary LaTeX command."
   (let ((temp-datasheet
-	 (plist-get (org-bom-get-current-component name) :datasheet-pdf)))
+	 (plist-get (org-bom-get-current-component name) :datasheetPdf)))
     (if (and (> (length temp-datasheet) 1) org-bom-latex-mode)
 	(concat "\\hyperref["temp-datasheet"]{"name"}")
       name)))
@@ -1279,74 +828,57 @@ For more details, see `org-bom-insert-datasheet-table'."
     (when org-bom-update-enable
       (org-bom-check-for-details-table)
       (org-bom-total)); Scan the buffer and refresh the bill of materials
-  (org-bom-insert-datasheet-table params)))
+    (org-bom-insert-datasheet-table params)))
+
+(defun org-bom-get-datasheet-info (component-name-list)
+  "Return a plist of the form \"(:name name :datasheetPdf
+  datasheetPdf :datasheetPath datasheetPath)\", given a
+  COMPONENT-NAME-LIST. Info is retrieved from `org-bom-details'."
+  (let ((datasheet-info nil))
+    (dolist (current-component component-name-list datasheet-info)
+      (let ((item-info (org-bom-get-current-component current-component)))
+	(push (list :name current-component
+		    :datasheetPdf (plist-get item-info :datasheetPdf)
+		    :datasheetPath (plist-get item-info :datasheetPath))
+	      datasheet-info)))))
 
 
-
-;;Horrible function from the time I was learning to code in elisp.
-;;I haven't found the courage to re-write it yet.
 (defun org-bom-insert-datasheet-table (params)
-  "This is used to add used components datasheet (for LaTeX only). The
-filename will be taken in the org-bom-details plist, with the
-property :datasheet. A latex command such as \"#+LATEX_HEADER:
-\newcommand{\DATASHEETPATH}{Name-of-the-folder/}\" shall be inserted
-at the beginning of the org document, where Name-of-the-folder is
-the folder where the datasheets files are. Note that the entire
-filename must be in the plist; \"datasheet.pdf\". Set
-\":description\" to enable a summary of components before the
-datasheets. As for the BOM dynamic block, the columns names can be
-changed with \":col-name-component\" and \":col-name-description\"."
+  "This is used to add used components datasheet (for LaTeX
+only). The filename will be taken in the org-bom-details plist,
+with the property :datasheetPdf, and the path
+with :datasheetPath. Set \":description\" to enable a summary of
+components before the datasheets. As for the BOM dynamic block,
+the columns names can be changed with \":col-name-component\" and
+\":col-name-description\"."
   (save-excursion
     (save-restriction
       (widen)
-      (let ((temp-database (org-bom-select-in-db org-bom-database 'component-name "" 'remove!))
-	    (all-component-names nil)
-	    (component-names-for-toc)
-	    (all-component-datasheet nil)
-	    (temp-filename nil)
-	    (temp-name nil))
-	(while temp-database
-	  (add-to-list 'all-component-names (component-name (pop temp-database)))); Gather every component used
+      (let ((all-component-names nil)
+	    (temp-database (org-bom-select-in-db org-bom-database 'component-name "" 'remove))
+	    (col-name-component (plist-get params :col-name-component) )
+	    (col-name-description (plist-get params :col-name-description)))
+	(when (plist-get params :description)
+	  (org-bom-insert-table (list :total t :no-tag t :no-quantity t :description t
+				      :col-name-component col-name-component
+				      :col-name-description col-name-description)))
+	(dolist (current-item temp-database)
+	  (add-to-list 'all-component-names (component-name current-item))); Gather every component used
 	(setf all-component-names (sort all-component-names 'gnus-string<))
-	(dolist (temp-component-name all-component-names )
-	  (let ((current-datasheet (plist-get (org-bom-get-current-component temp-component-name) :datasheet-pdf)))
-	    (if (> (length current-datasheet) 1)
-		(or (member current-datasheet all-component-datasheet)
-		    (progn (setq all-component-datasheet (cons current-datasheet all-component-datasheet))
-			   (setq component-names-for-toc (cons temp-component-name component-names-for-toc)))))))
-	(setf all-component-datasheet (nreverse all-component-datasheet))
-	(setf component-names-for-toc (nreverse component-names-for-toc))
-	(if (plist-get params :description)
-	    (progn (let ((col-name-component (or (if (plist-get params :col-name-component)
-						     (symbol-name (plist-get params :col-name-component))) "Component"))
-			 (col-name-description (or (if (plist-get params :col-name-description)
-						       (symbol-name (plist-get params :col-name-description))) "Description"))
-			 (temp-all-component-names all-component-names)
-			 (temp-all-component-filename all-component-datasheet))
-		     (org-table-create (concat (int-to-string 2)"x" (int-to-string (+ 1 (length all-component-names))))) ;create a table
-		     (org-table-goto-column 1)
-		     (insert col-name-component)
-		     (org-table-goto-column 2)
-		     (insert col-name-description)
-		     (while temp-all-component-names
-		       (setf temp-name (pop temp-all-component-names))
-		       (org-table-goto-line (+ (org-table-current-line) 1))
-		       (org-table-goto-column 1)
-		       (if (> (length (setf temp-filename (plist-get (org-bom-get-current-component temp-name) :datasheet-pdf))) 1)
-			   (insert (concat "\\hyperref["temp-filename"]{"temp-name"}"))
-			 (insert temp-name))
-		       (org-table-goto-column 2)
-		       (insert (or (plist-get (org-bom-get-current-component temp-name) :description) "N/A"))))
-		   (org-table-align)
-		   (end-of-line)
-		   (newline)))
-	(newline)
-	(setf all-component-datasheet all-component-datasheet)
-	(while all-component-datasheet ; for every datasheet
-	  (if (> (length (setf temp-filename-and-component (pop all-component-datasheet))) 1) ; get the filename associated with the component's name
-	      (progn(insert (concat "#+LaTeX: " "\\includepdf[pages=-,landscape=true,addtotoc={1, subsection, 1, " (pop component-names-for-toc) ","temp-filename-and-component"}]{\\DATASHEETPATH/" temp-filename-and-component "}"))
-		    (newline))
-	    (message (concat "#### " temp-name " doesn't have a datasheet... moving on."))))))))
+	(let ((component-info (org-bom-get-datasheet-info all-component-names))
+	      (used-datasheet)); do not include the same datasheet more than once.
+	  (newline)
+	  (dolist (current-component-info (nreverse component-info));reverse for alphabetic order
+	    (let ((datasheet (plist-get current-component-info :datasheetPdf)))
+	      (when (and (> (length datasheet) 0) (not (find datasheet used-datasheet :test 'gnus-string-equal)))
+		(add-to-list 'used-datasheet datasheet)
+		(insert (concat "#+LaTeX: " "\\includepdf[pages=-,landscape=true,addtotoc={1, subsection, 1, "
+				(plist-get current-component-info :name) ","
+				(plist-get current-component-info :datasheetPdf) "}]{"
+				(or (plist-get current-component-info :datasheetPath)
+				    org-bom-latex-datasheetPath) "/"
+				(plist-get current-component-info :datasheetPdf)) "}")
+		(newline)))))))))
 
 
 (provide 'org-bom)
